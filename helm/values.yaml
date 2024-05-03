@@ -1,0 +1,7 @@
+name: translator
+replicaCount: 1
+image:
+  repository: translator
+  tag: latest
+  pullPolicy: IfNotPresent
+
