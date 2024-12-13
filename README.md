@@ -2,13 +2,8 @@
 
 This Python project implements a generic translator from RDF to NGSI-LD.
 
-The work takes inspiration from
-[rdflib](https://rdflib.readthedocs.io/en/stable/index.html) plugins that store
-RDF data in backends like Neo4j (https://github.com/neo4j-labs/rdflib-neo4j).
-
-In this sense, this project provides an rdflib plugin where an NGSI-LD Context
-Broker works as the storage backend for RDF data. Additionally, the translator
-supports the ingestion of streams of RDF data via Kafka.
+The translator can ingest data from an RDF file or a Kafka stream. The generated
+NGSI-LD entities can be sent to both a Context Broker and another file.
 
 ## Translation Rules
 
@@ -17,11 +12,6 @@ into the NGSI-LD data model (property graph):
 
 - **Subject**: Maps to an NGSI-LD Entity. The URI of the subject in
   the RDF triple is the URI of the NGSI-LD Entity.
-
-  > :warning: This approach does not follow the convention recommended by
-  > ETSI CIM, which goes "urn:ngsi-ld:\<entity-type>:\<identifier>".
-  > The reason for doing this is to facilitate interoperability between RDF and
-  > NGSI-LD.
 
 - **Predicate**:
   - `a` or `rdf:type` predicate maps to the NGSI-LD Entity Type. For example:
@@ -56,20 +46,3 @@ into the NGSI-LD data model (property graph):
   via Link header. The selected approach will depend on the use case
   andthe developer's implementation.
 
-## Translation Modes
-
-The translator could be configured to expect `batches` of RDF data, instead of
-`streaming` events. In batching mode, the translator can analyze all RDF triples
-for the same subject, bundle the datatype and object properties, and produce
-a complete NGSI-LD Entity with a set of Properties and Relationships.
-This approach can improve performance as less NGSI-LD requests are sent
-to create the Entities in the Context Broker.
-
-## Acknowledgements
-
-This work was partially supported by the following projects:
-
-- **Horizon Europe aerOS**: Autonomous, scalablE, tRustworthy, intelligent European meta Operating System for the IoT edge-cloud continuum. Grant agreement 101069732
-- **SNS Horizon Europe ROBUST-6G**: Smart, Automated, and Reliable Security Service Platform for 6G. Grant agreement 101139068
-- **UNICO 5G I+D 6G-DATADRIVEN**: Redes de próxima generación (B5G y 6G) impulsadas por datos para la fabricación sostenible y la respuesta a emergencias. Ministerio de Asuntos Económicos y Transformación Digital. European Union NextGenerationEU.
-- **UNICO 5G I+D 6G-CHRONOS**: Arquitectura asistida por IA para 5G-6G con red determinista para comunicaciones industriales. Ministerio de Asuntos Económicos y Transformación Digital. European Union NextGenerationEU.

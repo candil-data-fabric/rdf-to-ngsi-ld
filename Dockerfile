@@ -1,95 +1,42 @@
-# syntax=docker/dockerfile:1
-# Keep this syntax directive! It's used to enable Docker BuildKit
+FROM python:3.11-slim AS builder
 
-# Based on https://github.com/python-poetry/poetry/discussions/1879?sort=top#discussioncomment-216865
-# Extended by https://gist.github.com/usr-ein/c42d98abca3cb4632ab0c2c6aff8c88a
+# Kudos to https://github.com/gianfa/poetry/blob/docs/docker-best-practices/docker-examples/poetry-multistage/Dockerfile
 
-FROM python:3.9-slim as python-base
+# --- Install Poetry ---
+ARG POETRY_VERSION=1.8.3
 
-    # python
-ENV PYTHONUNBUFFERED=1 \
-    # prevents python creating .pyc files
-    PYTHONDONTWRITEBYTECODE=1 \
-    \
-    # pip
-    PIP_DISABLE_PIP_VERSION_CHECK=on \
-    PIP_DEFAULT_TIMEOUT=100 \
-    \
-    # poetry
-    # https://python-poetry.org/docs/configuration/#using-environment-variables
-    POETRY_VERSION=1.7.1 \
-    # make poetry install to this location
-    POETRY_HOME="/opt/poetry" \
-    # make poetry create the virtual environment in the project's root
-    # it gets named `.venv`
-    POETRY_VIRTUALENVS_IN_PROJECT=true \
-    # do not ask any interactive question
-    POETRY_NO_INTERACTION=1 \
-    \
-    # paths
-    # this is where our requirements + virtual environment will live
-    PYSETUP_PATH="/opt/pysetup" \
-    VENV_PATH="/opt/pysetup/.venv"
+ENV POETRY_HOME=/opt/poetry
+ENV POETRY_NO_INTERACTION=1
+ENV POETRY_VIRTUALENVS_IN_PROJECT=1
+ENV POETRY_VIRTUALENVS_CREATE=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+# Tell Poetry where to place its cache and virtual environment
+ENV POETRY_CACHE_DIR=/opt/.cache
 
-# prepend poetry and venv to path
-ENV PATH="$POETRY_HOME/bin:$VENV_PATH/bin:$PATH"
+RUN pip install "poetry==${POETRY_VERSION}"
 
-################################
-# BUILDER-BASE
-# Used to build deps + create our virtual environment
-################################
-FROM python-base as builder-base
-RUN apt-get update \
-    && apt-get install --no-install-recommends -y \
-        # deps for installing poetry
-        curl \
-        # deps for building python deps
-        build-essential
-
-# install poetry - respects $POETRY_VERSION & $POETRY_HOME
-# The --mount will mount the buildx cache directory to where
-# Poetry and Pip store their cache so that they can re-use it
-RUN --mount=type=cache,target=/root/.cache \
-    curl -sSL https://install.python-poetry.org | python3 -
-
-# copy project requirement files here to ensure they will be cached.
-WORKDIR $PYSETUP_PATH
-COPY poetry.lock pyproject.toml ./
-
-# pass poetry extra dependencies as argument of docker build
-ARG optional_dependencies
-
-# install runtime deps - uses $POETRY_VIRTUALENVS_IN_PROJECT internally
-RUN --mount=type=cache,target=/root/.cache \
-    poetry install --extras "$optional_dependencies"
-
-################################
-# DEVELOPMENT
-# Image used during development / testing
-################################
-FROM python-base as development
-WORKDIR $PYSETUP_PATH
-
-# copy in our built poetry + venv
-COPY --from=builder-base $POETRY_HOME $POETRY_HOME
-COPY --from=builder-base $PYSETUP_PATH $PYSETUP_PATH
-
-# quicker install as runtime deps are already installed
-RUN --mount=type=cache,target=/root/.cache \
-    poetry install --with dev
-
-# will become mountpoint of our code
 WORKDIR /app
 
-CMD ["python3", "translator.py"]
+# --- Reproduce the environment ---
+# You can comment the following two lines if you prefer to manually install
+#   the dependencies from inside the container.
+COPY pyproject.toml .
 
-################################
-# PRODUCTION
-# Final image used for runtime
-################################
-FROM python-base as production
-ENV FASTAPI_ENV=production
-COPY --from=builder-base $PYSETUP_PATH $PYSETUP_PATH
-COPY ./rdf_to_ngsi_ld /app
-WORKDIR /app
-CMD ["python3", "translator.py"]
+# Install the dependencies and clear the cache afterwards.
+#   This may save some MBs.
+RUN poetry install --no-root && rm -rf $POETRY_CACHE_DIR
+
+# Now let's build the runtime image from the builder.
+#   We'll just copy the env and the PATH reference.
+FROM python:3.11-slim AS runtime
+
+ENV VIRTUAL_ENV=/app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
+
+COPY --from=builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}
+# Copy fastapi source code
+COPY ./rdf_to_ngsi_ld /app/rdf_to_ngsi_ld
+WORKDIR /app/rdf_to_ngsi_ld
+
+ENTRYPOINT [ "python3", "translator.py" ]
