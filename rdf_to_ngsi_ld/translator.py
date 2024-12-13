@@ -9,7 +9,8 @@ from ngsi_ld_client import (ContextInformationConsumptionApi,
 from ngsi_ld_client.api_client import ApiClient as NGSILDClient
 from ngsi_ld_client.configuration import Configuration as NGSILDConfiguration
 from ngsi_ld_client.exceptions import ApiException
-from pyoxigraph import Literal, RdfFormat, parse
+from rdflib import Graph, Literal
+from rdflib.namespace import RDF, XSD
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -17,41 +18,37 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-def serializer(rdf_data, rdf_format="n3") -> list[Entity]:
-    triples = list(parse(rdf_data, format=RdfFormat.from_extension(rdf_format)))
+def serializer(rdf_data, rdf_format: str) -> list[Entity]:
+    g = Graph()
+    g.parse(rdf_data, format=rdf_format)
     subjects = []
-    for triple in triples:
-        if triple.subject in subjects:
+    for subject in g.subjects():
+        if subject in subjects:
             continue
-        subjects.append(triple.subject)
+        subjects.append(subject)
 
     ngsild_entities = []
     for subject in subjects:
         dict_buffer = {}
-        dict_buffer["id"] = subject.value
+        dict_buffer["id"] = subject
         dict_buffer["type"] = ""
         dict_buffer["attributes"] = {}
-        pos = [(p, o) for s, p, o, _ in triples if s == subject]
-        for p, o in pos:
-            if p.value == "http://www.w3.org/1999/02/22-rdf-syntax-ns#type":
-                dict_buffer["type"] = o.value
-            elif p.value == "http://www.w3.org/2000/01/rdf-schema#subClassOf":
-                dict_buffer["attributes"][p.value] = {}
-                dict_buffer["attributes"][p.value]["type"] = "Property"
-                dict_buffer["attributes"][p.value]["value"] = o.value
+        for p, o in g.predicate_objects(subject):
+            if p == RDF.type:
+                dict_buffer["type"] = o
             elif isinstance(o, Literal): # Properties:
-                if o.datatype.value == "http://www.w3.org/2001/XMLSchema#DateTime":
-                    dict_buffer["attributes"][p.value] = {}
-                    dict_buffer["attributes"][p.value]["type"] = "Property"
-                    dict_buffer["attributes"][p.value]["value"] = o.value.isoformat()
+                if o.datatype == XSD.dateTime:
+                    dict_buffer["attributes"][p] = {}
+                    dict_buffer["attributes"][p]["type"] = "Property"
+                    dict_buffer["attributes"][p]["value"] = o.isoformat()
                 else:
-                    dict_buffer["attributes"][p.value] = {}
-                    dict_buffer["attributes"][p.value]["type"] = "Property"
-                    dict_buffer["attributes"][p.value]["value"] = o.value
+                    dict_buffer["attributes"][p] = {}
+                    dict_buffer["attributes"][p]["type"] = "Property"
+                    dict_buffer["attributes"][p]["value"] = o
             else: # Relationships:
-                dict_buffer["attributes"][p.value] = {}
-                dict_buffer["attributes"][p.value]["type"] = "Relationship"
-                dict_buffer["attributes"][p.value]["object"] = o.value
+                dict_buffer["attributes"][p] = {}
+                dict_buffer["attributes"][p]["type"] = "Relationship"
+                dict_buffer["attributes"][p]["object"] = o
 
         ngsild_entity = Entity(
             id=dict_buffer["id"],
@@ -130,8 +127,8 @@ def main():
     parser.add_argument('--input-file', help="Path to the RDF file to process.")
     parser.add_argument(
         '--rdf-format',
-        choices=['ttl', 'n3'],
-        default='ttl',
+        choices=['turtle', 'nt'],
+        default='turtle',
         required=True,
         help="Format of the input RDF data."
     )
