@@ -18,11 +18,9 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-def serializer(rdf_data, rdf_format: str) -> list[Entity]:
-    g = Graph()
-    g.parse(rdf_data, format=rdf_format)
+def serializer(rdf_graph: Graph) -> list[Entity]:
     subjects = []
-    for subject in g.subjects():
+    for subject in rdf_graph.subjects():
         if subject in subjects:
             continue
         subjects.append(subject)
@@ -33,7 +31,7 @@ def serializer(rdf_data, rdf_format: str) -> list[Entity]:
         dict_buffer["id"] = subject
         dict_buffer["type"] = ""
         dict_buffer["attributes"] = {}
-        for p, o in g.predicate_objects(subject):
+        for p, o in rdf_graph.predicate_objects(subject):
             if p == RDF.type:
                 dict_buffer["type"] = o
             elif isinstance(o, Literal): # Properties:
@@ -139,10 +137,9 @@ def main():
 
     if args.input_file:
         logging.info(f"Processing RDF data from file: {args.input_file}")
-        rdf_data = None
-        with open(args.input_file, 'rb') as file:
-            rdf_data = file.read()
-        ngsild_data = serializer(rdf_data, args.rdf_format)
+        rdf_graph = Graph()
+        rdf_graph.parse(args.input_file, format=args.rdf_format)
+        ngsild_data = serializer(rdf_graph)
         if args.output_file:
             send_to_file(ngsild_data, args.output_file)
         if args.context_broker:
@@ -156,7 +153,9 @@ def main():
             enable_auto_commit=True
         )
         for rdf_data in consumer:
-            ngsild_data = serializer(rdf_data.value, args.rdf_format)
+            rdf_graph = Graph()
+            rdf_graph.parse(rdf_data, format=args.rdf_format)
+            ngsild_data = serializer(rdf_graph)
             if args.output_file:
                 send_to_file(ngsild_data, args.output_file)
             if args.context_broker:
