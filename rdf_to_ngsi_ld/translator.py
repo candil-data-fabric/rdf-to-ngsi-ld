@@ -40,13 +40,27 @@ def serializer(rdf_graph: Graph) -> list[Entity]:
                     dict_buffer["attributes"][p]["type"] = "Property"
                     dict_buffer["attributes"][p]["value"] = o.isoformat()
                 else:
-                    dict_buffer["attributes"][p] = {}
-                    dict_buffer["attributes"][p]["type"] = "Property"
-                    dict_buffer["attributes"][p]["value"] = o
+                    # Check for repeated property, i.e., value array
+                    if p in dict_buffer["attributes"]:
+                        value_array = []
+                        value_array.append(dict_buffer["attributes"][p]["value"])
+                        value_array.append(o)
+                        dict_buffer["attributes"][p]["value"] = value_array
+                    else:
+                        dict_buffer["attributes"][p] = {}
+                        dict_buffer["attributes"][p]["type"] = "Property"
+                        dict_buffer["attributes"][p]["value"] = o
             else: # Relationships:
-                dict_buffer["attributes"][p] = {}
-                dict_buffer["attributes"][p]["type"] = "Relationship"
-                dict_buffer["attributes"][p]["object"] = o
+                # Check for repeated property, i.e., object
+                if p in dict_buffer["attributes"]:
+                    object_array = []
+                    object_array.append(dict_buffer["attributes"][p]["object"])
+                    object_array.append(o)
+                    dict_buffer["attributes"][p]["object"] = object_array
+                else:
+                    dict_buffer["attributes"][p] = {}
+                    dict_buffer["attributes"][p]["type"] = "Relationship"
+                    dict_buffer["attributes"][p]["object"] = o
 
         ngsild_entity = Entity(
             id=dict_buffer["id"],
@@ -104,9 +118,11 @@ def send_to_context_broker(entities: list[Entity], context_broker: str, debug: b
         if exists == False:
             logger.info("Entity " + entity.id + " Does not exist. Trying to create it...")
             create_ngsi_ld_entity(ngsild_client, entity)
+            logger.info("Entity " + entity.id + " created.")
         else:
             logger.info("Entity " + entity.id + " already created. Updating...")
             update_ngsi_ld_entity(ngsild_client, entity)
+            logger.info("Entity " + entity.id + " updated.")
 
 
 def send_to_file(entities: list[Entity], output_file: str) :
@@ -130,7 +146,7 @@ def main():
         required=True,
         help="Format of the input RDF data."
     )
-    parser.add_argument('--context-broker', help="NGSI-LD Context Broker endpoint.")
+    parser.add_argument('--context-broker', help="NGSI-LD Context Broker URL.")
     parser.add_argument('--output-file', help="Store NGSI-LD data in file.")
     parser.add_argument('--debug', default=False, help="Debug mode.")
     args = parser.parse_args()
