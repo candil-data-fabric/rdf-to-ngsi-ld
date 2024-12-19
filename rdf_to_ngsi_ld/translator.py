@@ -42,10 +42,13 @@ def serializer(rdf_graph: Graph) -> list[Entity]:
                 else:
                     # Check for repeated property, i.e., value array
                     if p in dict_buffer["attributes"]:
-                        value_array = []
-                        value_array.append(dict_buffer["attributes"][p]["value"])
-                        value_array.append(o)
-                        dict_buffer["attributes"][p]["value"] = value_array
+                        if not isinstance(dict_buffer["attributes"][p]["value"], list):
+                            value_array = []
+                            value_array.append(dict_buffer["attributes"][p]["value"])
+                            value_array.append(o)
+                            dict_buffer["attributes"][p]["value"] = value_array
+                        else:
+                            dict_buffer["attributes"][p]["value"].append(o)
                     else:
                         dict_buffer["attributes"][p] = {}
                         dict_buffer["attributes"][p]["type"] = "Property"
@@ -53,10 +56,13 @@ def serializer(rdf_graph: Graph) -> list[Entity]:
             else: # Relationships:
                 # Check for repeated property, i.e., object
                 if p in dict_buffer["attributes"]:
-                    object_array = []
-                    object_array.append(dict_buffer["attributes"][p]["object"])
-                    object_array.append(o)
-                    dict_buffer["attributes"][p]["object"] = object_array
+                    if not isinstance(dict_buffer["attributes"][p]["object"], list):
+                        object_array = []
+                        object_array.append(dict_buffer["attributes"][p]["object"])
+                        object_array.append(o)
+                        dict_buffer["attributes"][p]["object"] = object_array
+                    else:
+                        dict_buffer["attributes"][p]["object"].append(o)
                 else:
                     dict_buffer["attributes"][p] = {}
                     dict_buffer["attributes"][p]["type"] = "Relationship"
