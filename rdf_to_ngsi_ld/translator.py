@@ -9,7 +9,7 @@ from ngsi_ld_client import (ContextInformationConsumptionApi,
 from ngsi_ld_client.api_client import ApiClient as NGSILDClient
 from ngsi_ld_client.configuration import Configuration as NGSILDConfiguration
 from ngsi_ld_client.exceptions import ApiException
-from rdflib import Graph, Literal
+from rdflib import Graph, Literal, URIRef
 from rdflib.namespace import RDF, XSD
 
 logging.basicConfig(
@@ -18,7 +18,9 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-def serializer(rdf_graph: Graph) -> list[Entity]:
+def serializer(
+        rdf_graph: Graph,
+        array_properties: list[str]) -> list[Entity]:
     subjects = []
     for subject in rdf_graph.subjects():
         if subject in subjects:
@@ -52,7 +54,13 @@ def serializer(rdf_graph: Graph) -> list[Entity]:
                     else:
                         dict_buffer["attributes"][p] = {}
                         dict_buffer["attributes"][p]["type"] = "Property"
-                        dict_buffer["attributes"][p]["value"] = o
+                        if array_properties:
+                            if str(p) in array_properties:
+                                dict_buffer["attributes"][p]["value"] = [o]
+                            else:
+                                dict_buffer["attributes"][p]["value"] = o
+                        else:
+                            dict_buffer["attributes"][p]["value"] = o
             else: # Relationships:
                 # Check for repeated property, i.e., object
                 if p in dict_buffer["attributes"]:
@@ -66,7 +74,13 @@ def serializer(rdf_graph: Graph) -> list[Entity]:
                 else:
                     dict_buffer["attributes"][p] = {}
                     dict_buffer["attributes"][p]["type"] = "Relationship"
-                    dict_buffer["attributes"][p]["object"] = o
+                    if array_properties:
+                        if str(p) in array_properties:
+                            dict_buffer["attributes"][p]["object"] = [o]
+                        else:
+                            dict_buffer["attributes"][p]["object"] = o
+                    else:
+                        dict_buffer["attributes"][p]["object"] = o
 
         ngsild_entity = Entity(
             id=dict_buffer["id"],
@@ -154,6 +168,7 @@ def main():
     )
     parser.add_argument('--context-broker', help="NGSI-LD Context Broker URL.")
     parser.add_argument('--output-file', help="Store NGSI-LD data in file.")
+    parser.add_argument('--array-properties', nargs='+', help="List of URIs of properties to be always treated as arrays in NGSI-LD.")
     parser.add_argument('--debug', default=False, help="Debug mode.")
     args = parser.parse_args()
 
@@ -161,7 +176,8 @@ def main():
         logging.info(f"Processing RDF data from file: {args.input_file}")
         rdf_graph = Graph()
         rdf_graph.parse(args.input_file, format=args.rdf_format)
-        ngsild_data = serializer(rdf_graph)
+
+        ngsild_data = serializer(rdf_graph, args.array_properties)
         if args.output_file:
             send_to_file(ngsild_data, args.output_file)
         if args.context_broker:
