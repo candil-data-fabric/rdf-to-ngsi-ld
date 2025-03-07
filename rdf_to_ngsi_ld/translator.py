@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 def serializer(
         rdf_graph: Graph,
-        array_properties: list[str]) -> list[Entity]:
+        array_properties: list[str] = None) -> list[Entity]:
     subjects = []
     for subject in rdf_graph.subjects():
         if subject in subjects:
