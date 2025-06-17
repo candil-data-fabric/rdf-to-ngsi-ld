@@ -45,3 +45,11 @@ into the NGSI-LD data model (property graph):
   send along the NGSI-LD payload or stored elsewhere and reference
   via Link header. The selected approach will depend on the use case
   andthe developer's implementation.
+
+## Acknowledgements
+
+This work was partially supported by the following projects:
+
+- **UNICO 5G I+D 6G-DATADRIVEN**: Redes de próxima generación (B5G y 6G) impulsadas por datos para la fabricación sostenible y la respuesta a emergencias. Ministerio de Asuntos Económicos y Transformación Digital. European Union NextGenerationEU.
+
+![UNICO](./images/ack-logo.png)
