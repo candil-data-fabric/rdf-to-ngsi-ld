@@ -1,6 +1,9 @@
 import argparse
+import csv
 import json
 import logging
+import os
+import time
 
 import ngsi_ld_client
 from kafka import KafkaConsumer
@@ -43,24 +46,25 @@ def serializer(
                     dict_buffer["attributes"][p]["value"] = o.isoformat()
                 else:
                     # Check for repeated property, i.e., value array
+                    value = o.toPython()
                     if p in dict_buffer["attributes"]:
                         if not isinstance(dict_buffer["attributes"][p]["value"], list):
                             value_array = []
                             value_array.append(dict_buffer["attributes"][p]["value"])
-                            value_array.append(o)
+                            value_array.append(value)
                             dict_buffer["attributes"][p]["value"] = value_array
                         else:
-                            dict_buffer["attributes"][p]["value"].append(o)
+                            dict_buffer["attributes"][p]["value"].append(value)
                     else:
                         dict_buffer["attributes"][p] = {}
                         dict_buffer["attributes"][p]["type"] = "Property"
                         if array_properties:
                             if str(p) in array_properties:
-                                dict_buffer["attributes"][p]["value"] = [o]
+                                dict_buffer["attributes"][p]["value"] = [value]
                             else:
-                                dict_buffer["attributes"][p]["value"] = o
+                                dict_buffer["attributes"][p]["value"] = value
                         else:
-                            dict_buffer["attributes"][p]["value"] = o
+                            dict_buffer["attributes"][p]["value"] = value
             else: # Relationships:
                 # Check for repeated property, i.e., object
                 if p in dict_buffer["attributes"]:
@@ -154,7 +158,6 @@ def send_to_file(entities: list[Entity], output_file: str) :
 
 # Run translator as script
 def main():
-    """Run the program as a script to consume RDF data from Kafka and store it."""
     parser = argparse.ArgumentParser(description="Consume RDF data from Kafka and store it.")
     parser.add_argument('--kafka-topic', help="Kafka topic to consume RDF data from.")
     parser.add_argument('--kafka-server', help="Kafka bootstrap server.")
@@ -170,6 +173,7 @@ def main():
     parser.add_argument('--output-file', help="Store NGSI-LD data in file.")
     parser.add_argument('--array-properties', nargs='+', help="List of URIs of properties to be always treated as arrays in NGSI-LD.")
     parser.add_argument('--debug', default=False, help="Debug mode.")
+    parser.add_argument("--performance", action="store_true", help="Activate performance mode")
     args = parser.parse_args()
 
     if args.input_file:
@@ -183,21 +187,53 @@ def main():
         if args.context_broker:
             send_to_context_broker(ngsild_data, args.context_broker, args.debug)
 
-    elif args.kafka_topic and args.bootstrap_servers:
+    elif args.kafka_topic and args.kafka_server:
         logging.info(f"Processing RDF data from Kafka topic: {args.kafka_topic}")
         consumer = KafkaConsumer(
             args.kafka_topic,
             bootstrap_servers=args.kafka_server,
             enable_auto_commit=True
         )
-        for rdf_data in consumer:
-            rdf_graph = Graph()
-            rdf_graph.parse(rdf_data, format=args.rdf_format)
-            ngsild_data = serializer(rdf_graph)
-            if args.output_file:
-                send_to_file(ngsild_data, args.output_file)
-            if args.context_broker:
-                send_to_context_broker(ngsild_data, args.context_broker, args.debug)
+
+        if args.performance:
+            csv_file = open('results.csv', 'a', newline='')
+            writer = csv.writer(csv_file)
+            if not os.path.exists('results.csv') or os.path.getsize('results.csv') == 0:
+                logger.info("CSV is empty — write header first")
+                fields = ["Subjects", "Triples", "mps", "Kafka_in", "Kafka_out","End_time"]
+                writer.writerow(fields)
+
+            for rdf_data in consumer:
+                # Set timestamp when message read from kafka
+                kafka_out_tstamp = time.time() * 1000
+                logger.info("Message consumed from Kafka")
+                # Get timestamp when message was written in kafka
+                kafka_in_tstamp = rdf_data.timestamp
+                rdf_graph = Graph()
+                rdf_graph.parse(rdf_data.value, format=args.rdf_format)
+                ngsild_data = serializer(rdf_graph)
+                if args.output_file:
+                    send_to_file(ngsild_data, args.output_file)
+                if args.context_broker:
+                    send_to_context_broker(ngsild_data, args.context_broker, args.debug)
+
+                # Set timestamp output
+                end_tstamp = time.time() * 1000
+                unique_subjects = set(rdf_graph.subjects())
+                total_subjects = len(unique_subjects)
+                mps_header = next((v for k, v in rdf_data.headers if k == "mps"), None)
+                writer.writerow([total_subjects, len(rdf_graph), int(mps_header.decode("utf-8")),kafka_in_tstamp, kafka_out_tstamp, end_tstamp])
+
+        # Standard mode
+        else:
+            for rdf_data in consumer:
+                rdf_graph = Graph()
+                rdf_graph.parse(rdf_data.value, format=args.rdf_format)
+                ngsild_data = serializer(rdf_graph)
+                if args.output_file:
+                    send_to_file(ngsild_data, args.output_file)
+                if args.context_broker:
+                    send_to_context_broker(ngsild_data, args.context_broker, args.debug)
 
 if __name__ == "__main__":
     main()
