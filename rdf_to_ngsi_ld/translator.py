@@ -131,22 +131,39 @@ def update_ngsi_ld_entity(ngsi_ld: NGSILDClient, entity: Entity) -> bool:
         return False
     return True
 
-def send_to_context_broker(entities: list[Entity], context_broker: str, debug: bool):
+def send_to_context_broker(entities: list[Entity], context_broker: str, debug: bool, batch: bool):
     # Init NGSI-LD Client
     configuration = NGSILDConfiguration(host=context_broker)
     configuration.debug = debug
     ngsild_client = NGSILDClient(configuration=configuration)
 
-    for entity in entities:
-        exists = check_ngsi_ld_entity_exists(ngsild_client, entity.id)
-        if exists == False:
-            logger.info("Entity " + entity.id + " Does not exist. Trying to create it...")
-            create_ngsi_ld_entity(ngsild_client, entity)
-            logger.info("Entity " + entity.id + " created.")
-        else:
-            logger.info("Entity " + entity.id + " already created. Updating...")
-            update_ngsi_ld_entity(ngsild_client, entity)
-            logger.info("Entity " + entity.id + " updated.")
+    if batch:
+        p_entities = []
+        for entity in entities:
+            p_entities.append(ngsi_ld_client.QueryEntity200ResponseInner(
+                        id=entity.id,
+                        type=entity.type,
+                        additional_properties=entity.additional_properties
+            ))
+        api_instance = ContextInformationProvisionApi(ngsild_client)
+        try:
+            api_instance.upsert_batch(
+                query_entity200_response_inner=p_entities
+            )
+            logger.info("Created entities: {0}".format(','.join(p_entity.id for p_entity in p_entities)))
+        except ApiException as e:
+            logger.warning(e)
+    else:
+        for entity in entities:
+            exists = check_ngsi_ld_entity_exists(ngsild_client, entity.id)
+            if exists == False:
+                logger.info("Entity " + entity.id + " Does not exist. Trying to create it...")
+                create_ngsi_ld_entity(ngsild_client, entity)
+                logger.info("Entity " + entity.id + " created.")
+            else:
+                logger.info("Entity " + entity.id + " already created. Updating...")
+                update_ngsi_ld_entity(ngsild_client, entity)
+                logger.info("Entity " + entity.id + " updated.")
 
 
 def send_to_file(entities: list[Entity], output_file: str) :
@@ -174,6 +191,7 @@ def main():
     parser.add_argument('--array-properties', nargs='+', help="List of URIs of properties to be always treated as arrays in NGSI-LD.")
     parser.add_argument('--debug', default=False, help="Debug mode.")
     parser.add_argument("--performance", action="store_true", help="Activate performance mode")
+    parser.add_argument("--batch", action="store_true", help="Activate batch mode")
     args = parser.parse_args()
 
     if args.input_file:
@@ -212,13 +230,13 @@ def main():
                 rdf_graph = Graph()
                 rdf_graph.parse(rdf_data.value, format=args.rdf_format)
                 ngsild_data = serializer(rdf_graph)
+                end_tstamp = time.time() * 1000
                 if args.output_file:
                     send_to_file(ngsild_data, args.output_file)
                 if args.context_broker:
-                    send_to_context_broker(ngsild_data, args.context_broker, args.debug)
+                    send_to_context_broker(ngsild_data, args.context_broker, args.debug, args.batch)
 
                 # Set timestamp output
-                end_tstamp = time.time() * 1000
                 unique_subjects = set(rdf_graph.subjects())
                 total_subjects = len(unique_subjects)
                 mps_header = next((v for k, v in rdf_data.headers if k == "mps"), None)
@@ -233,7 +251,7 @@ def main():
                 if args.output_file:
                     send_to_file(ngsild_data, args.output_file)
                 if args.context_broker:
-                    send_to_context_broker(ngsild_data, args.context_broker, args.debug)
+                    send_to_context_broker(ngsild_data, args.context_broker, args.debug, args.batch)
 
 if __name__ == "__main__":
     main()
